@@ -17,4 +17,4 @@ jobs:
           node-version: "20"
       - run: npm install
       - run: npm install --no-save ts-node
-      - run: npx jest --ci --coverage --testPathPattern="\.test\."
+      - run: npx jest --ci --coverage --testPathPatterns='\.test\.'
