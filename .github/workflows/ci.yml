@@ -18,3 +18,20 @@ jobs:
       - run: npm install
       - run: npm install --no-save ts-node
       - run: npx jest --ci --coverage --testPathPatterns='\.test\.'
+
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    env:
+      NEXTAUTH_SECRET: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run build
