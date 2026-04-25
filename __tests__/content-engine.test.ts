@@ -2,7 +2,7 @@
  * Unit tests for the AI content engine internals (pure functions only).
  */
 
-process.env.NODE_ENV = 'test';
+(process.env as Record<string, string>).NODE_ENV = 'test';
 process.env.NEXTAUTH_SECRET = 'x'.repeat(32);
 process.env.NEXTAUTH_URL = 'http://localhost:3000';
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';

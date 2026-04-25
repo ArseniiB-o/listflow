@@ -25,6 +25,8 @@ const envSchema = z.object({
   NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
   BRAND_NAME: z.string().min(1).default('My Store'),
   ADMIN_EMAILS: z.string().min(1).optional(),
+  ADMIN_API_TOKEN: z.string().min(32).optional(),
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   // AI — OpenRouter unifies Claude / Gemini / GPT behind one API
   OPENROUTER_API_KEY: z.string().min(1).optional(),
@@ -41,6 +43,7 @@ const envSchema = z.object({
   EBAY_FULFILLMENT_POLICY_ID: z.string().min(1).optional(),
   EBAY_PAYMENT_POLICY_ID: z.string().min(1).optional(),
   EBAY_RETURN_POLICY_ID: z.string().min(1).optional(),
+  EBAY_DEFAULT_CATEGORY_ID: z.string().min(1).optional(),
   EBAY_ENVIRONMENT: z.enum(['sandbox', 'production']).default('sandbox'),
 
   // Etsy

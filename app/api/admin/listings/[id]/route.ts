@@ -4,11 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { getAdapter } from '@/lib/marketplaces/registry';
 import { publishProduct } from '@/lib/marketplaces/publish';
 import type { Channel } from '@/lib/marketplaces/types';
-
-// TODO: Replace with your auth check
-async function verifyAdmin(): Promise<boolean> {
-  return true;
-}
+import { isAdminRequest, rateLimit, clientKey } from '@/lib/auth';
+import { logger, errorContext } from '@/lib/logger';
 
 const idSchema = z.string().uuid();
 
@@ -16,9 +13,12 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export async function POST(_req: NextRequest, { params }: RouteContext) {
-  if (!(await verifyAdmin())) {
+export async function POST(req: NextRequest, { params }: RouteContext) {
+  if (!(await isAdminRequest(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!rateLimit(`admin-resync:${clientKey(req)}`, 30, 60_000)) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
   }
 
   const { id } = await params;
@@ -35,16 +35,23 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
   if (error || !row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   try {
-    const results = await publishProduct({ productId: row.product_id, channels: [row.marketplace] });
+    const results = await publishProduct({
+      productId: row.product_id,
+      channels: [row.marketplace],
+    });
     return NextResponse.json({ success: true, data: results });
-  } catch {
+  } catch (err) {
+    logger.error('admin listings/[id]: resync failed', errorContext(err));
     return NextResponse.json({ error: 'Sync failed' }, { status: 500 });
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteContext) {
-  if (!(await verifyAdmin())) {
+export async function DELETE(req: NextRequest, { params }: RouteContext) {
+  if (!(await isAdminRequest(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!rateLimit(`admin-end:${clientKey(req)}`, 30, 60_000)) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
   }
 
   const { id } = await params;
@@ -72,7 +79,8 @@ export async function DELETE(_req: NextRequest, { params }: RouteContext) {
       .eq('id', parseId.data);
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    logger.error('admin listings/[id]: end failed', errorContext(err));
     return NextResponse.json({ error: 'End failed' }, { status: 500 });
   }
 }

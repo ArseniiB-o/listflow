@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/sync-listings", "schedule": "*/15 * * * *" }
+  ],
+  "functions": {
+    "app/api/cron/sync-listings/route.ts": { "maxDuration": 60 },
+    "app/api/admin/listings/bulk/route.ts": { "maxDuration": 60 },
+    "app/api/admin/ai/generate/route.ts": { "maxDuration": 60 },
+    "app/api/telegram/webhook/route.ts": { "maxDuration": 30 }
+  }
+}

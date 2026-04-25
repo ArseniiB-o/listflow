@@ -3,11 +3,8 @@ import { z } from 'zod';
 import { generateContent, BudgetExceededError } from '@/lib/ai/content-engine';
 import { ALL_CHANNELS, type Channel } from '@/lib/marketplaces/types';
 import { env } from '@/lib/env';
-
-// TODO: Replace with your auth check
-async function verifyAdmin(): Promise<boolean> {
-  return true;
-}
+import { isAdminRequest, rateLimit, clientKey } from '@/lib/auth';
+import { logger, errorContext } from '@/lib/logger';
 
 const generateSchema = z.object({
   userText: z.string().min(1).max(4000),
@@ -23,8 +20,11 @@ const generateSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  if (!(await verifyAdmin())) {
+  if (!(await isAdminRequest(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!rateLimit(`admin-ai:${clientKey(req)}`, 10, 60_000)) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
   }
 
   if (!env.OPENROUTER_API_KEY) {
@@ -43,19 +43,23 @@ export async function POST(req: NextRequest) {
 
   const parsed = generateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 422 });
+    return NextResponse.json(
+      { error: 'Validation failed', details: parsed.error.flatten() },
+      { status: 422 },
+    );
   }
 
   try {
     const result = await generateContent(parsed.data);
     return NextResponse.json({ success: true, data: result });
-  } catch (err: unknown) {
+  } catch (err) {
     if (err instanceof BudgetExceededError) {
       return NextResponse.json(
         { error: 'Daily AI budget exceeded', usedCents: err.usedCents, budgetCents: err.budgetCents },
         { status: 429 },
       );
     }
+    logger.error('admin ai/generate: failed', errorContext(err));
     return NextResponse.json({ error: 'Generation failed' }, { status: 500 });
   }
 }

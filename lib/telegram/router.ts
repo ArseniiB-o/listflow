@@ -12,7 +12,8 @@
 
 import 'server-only';
 import { z } from 'zod';
-import { sendMessage, getFile, answerCallbackQuery } from './bot';
+import { sendMessage, answerCallbackQuery } from './bot';
+import { signedTelegramImageUrl } from './image-proxy';
 import { getDraft, saveDraft, clearDraft } from './session';
 import { generateContent, BudgetExceededError } from '@/lib/ai/content-engine';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -171,14 +172,19 @@ async function handleMessage(msg: TgMessage): Promise<void> {
   const photo = msg.photo && pickLargestPhoto(msg.photo);
   if (photo) {
     try {
-      const url = await getFile(photo.file_id);
+      // Persist a signed proxy URL — the bot token never lands in the DB or
+      // in any marketplace listing's image array.
+      const url = await signedTelegramImageUrl(photo.file_id);
       nextImages = [...nextImages, url].slice(0, 10);
     } catch {
-      await sendMessage({ chatId, text: 'Failed to download photo, try again.' });
+      await sendMessage({ chatId, text: 'Failed to register photo, try again.' });
       return;
     }
   }
-  if (text) nextText = nextText ? `${nextText}\n${text}` : text;
+  if (text) {
+    const merged = nextText ? `${nextText}\n${text}` : text;
+    nextText = merged.slice(0, 4000);
+  }
 
   await saveDraft({ ...draft, images: nextImages, userText: nextText });
   await sendMessage({
@@ -317,7 +323,9 @@ async function runPublish(chatId: number): Promise<void> {
     .single<{ id: string }>();
 
   if (error || !product) {
-    await sendMessage({ chatId, text: 'Failed to create product in database.' });
+    // Roll back to ready so the user can retry without re-running AI.
+    await saveDraft({ ...draft, stage: 'ready' });
+    await sendMessage({ chatId, text: 'Failed to create product in database. Try /publish again.' });
     return;
   }
 

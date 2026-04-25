@@ -60,10 +60,10 @@ export async function applyOrderEvent(event: OrderEvent): Promise<void> {
     const others = ALL_CHANNELS.filter((c) => c !== event.channel);
     const { data: otherListings } = await supabase
       .from('marketplace_listings')
-      .select('marketplace, external_id')
+      .select('marketplace, external_id, status')
       .eq('product_id', listing.product_id)
       .in('marketplace', others)
-      .eq('status', 'active');
+      .in('status', ['active', 'publishing']);
 
     await Promise.all(
       (otherListings ?? []).map(async (row) => {

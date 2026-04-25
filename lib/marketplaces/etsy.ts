@@ -69,6 +69,19 @@ async function etsyFetch<T>(
   });
 }
 
+function normalizeEtsyTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim().toLowerCase().slice(0, 20);
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length === 13) break;
+  }
+  return out;
+}
+
 function buildDraftBody(input: ListingPayload) {
   const taxonomyId = input.suggestedCategoryPath.etsy_de
     ? parseInt(input.suggestedCategoryPath.etsy_de, 10)
@@ -83,7 +96,7 @@ function buildDraftBody(input: ListingPayload) {
     when_made: 'made_to_order',
     taxonomy_id: isNaN(taxonomyId) ? 1633 : taxonomyId,
     type: 'physical',
-    tags: input.tags.en.slice(0, 13).map((t) => t.slice(0, 20)),
+    tags: normalizeEtsyTags(input.tags.en),
     materials: input.materialHints.slice(0, 13),
     state: 'draft',
   };
@@ -94,11 +107,39 @@ interface EtsyListingResponse {
   url?: string;
 }
 
+function assertSafeImageUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('invalid image URL');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('image URL must be http(s)');
+  }
+  const host = url.hostname.toLowerCase();
+  const BLOCKED =
+    /^(localhost|0\.0\.0\.0|127\.\d|10\.\d|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|fd[0-9a-f]{2}:|\[::1\])/i;
+  if (BLOCKED.test(host)) throw new Error(`blocked private host: ${host}`);
+  return url;
+}
+
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
 async function uploadImages(shopId: string, listingId: number, urls: string[]): Promise<void> {
-  for (const [index, url] of urls.slice(0, 10).entries()) {
-    const imgRes = await fetchWithTimeout(url, {}, 30_000);
+  for (const [index, raw] of urls.slice(0, 10).entries()) {
+    let url: URL;
+    try {
+      url = assertSafeImageUrl(raw);
+    } catch {
+      continue;
+    }
+    const imgRes = await fetchWithTimeout(url.toString(), {}, 30_000);
     if (!imgRes.ok) continue;
+    const lengthHeader = imgRes.headers.get('content-length');
+    if (lengthHeader && Number(lengthHeader) > MAX_IMAGE_BYTES) continue;
     const blob = await imgRes.blob();
+    if (blob.size > MAX_IMAGE_BYTES) continue;
     const form = new FormData();
     form.append('image', blob, `image-${index}.jpg`);
     form.append('rank', String(index + 1));
@@ -159,7 +200,7 @@ export const etsyAdapter: MarketplaceAdapter = {
           description: input.description.en,
           price: input.priceEUR,
           quantity: input.stockQuantity ?? 1,
-          tags: input.tags.en.slice(0, 13).map((t) => t.slice(0, 20)),
+          tags: normalizeEtsyTags(input.tags.en),
         },
       );
       return {

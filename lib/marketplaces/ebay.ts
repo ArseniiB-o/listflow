@@ -108,7 +108,7 @@ function buildOffer(input: ListingPayload, sku: string) {
     marketplaceId: MARKETPLACE_ID,
     format: 'FIXED_PRICE',
     availableQuantity: input.stockQuantity ?? 1,
-    categoryId: input.suggestedCategoryPath.ebay_de ?? '14339',
+    categoryId: input.suggestedCategoryPath.ebay_de ?? env.EBAY_DEFAULT_CATEGORY_ID ?? '14339',
     listingDescription: input.description.de,
     listingPolicies: {
       fulfillmentPolicyId: env.EBAY_FULFILLMENT_POLICY_ID ?? '',
@@ -177,9 +177,21 @@ export const ebayAdapter: MarketplaceAdapter = {
 
   async end(externalId: string): Promise<void> {
     try {
-      await ebayFetch('DELETE', `/sell/inventory/v1/inventory_item/lf-${externalId}`);
+      // Look up the SKU from the listing id by walking offers; fail-soft if
+      // either step fails — eBay deletes the inventory item by SKU, not by listingId.
+      const offers = await ebayFetch<{ offers?: Array<{ sku?: string; offerId?: string; listing?: { listingId?: string } }> }>(
+        'GET',
+        `/sell/inventory/v1/offer?listing_id=${encodeURIComponent(externalId)}`,
+      );
+      const match = offers.offers?.find((o) => o.listing?.listingId === externalId);
+      if (match?.offerId) {
+        await ebayFetch('POST', `/sell/inventory/v1/offer/${match.offerId}/withdraw`);
+      }
+      if (match?.sku) {
+        await ebayFetch('DELETE', `/sell/inventory/v1/inventory_item/${encodeURIComponent(match.sku)}`);
+      }
     } catch {
-      // fail-soft
+      // fail-soft — listing may already be ended on eBay's side
     }
   },
 };

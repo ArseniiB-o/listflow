@@ -154,27 +154,62 @@ supabase/migrations/
 ## Tests
 
 ```bash
-npm test           # Unit tests
-npm run test:ci    # With coverage
+npm test           # Unit tests (49 suites)
+npm run test:ci    # With coverage (60% lines / functions, 50% branches)
+npx tsc --noEmit   # Type-check
 ```
+
+CI runs the full suite on every push (see `.github/workflows/ci.yml`),
+including a build with placeholder env vars and a gitleaks secret scan.
+
+## Admin authentication
+
+The admin API endpoints (`/api/admin/**`) and the cron endpoint require
+authentication. Two modes are supported (in priority order):
+
+1. **Bearer token** — set `ADMIN_API_TOKEN` to a random 32+ char string and
+   pass `Authorization: Bearer <token>`. Best for automation.
+2. **Supabase session** — set `ADMIN_EMAILS=alice@example.com,bob@example.com`,
+   sign in via Supabase, and the `sb-access-token` cookie unlocks the admin UI.
+
+If **neither** variable is set, the admin API rejects every request — the
+template fails closed by design.
+
+## Operational endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET  /api/health` | Liveness + dependency probe (no auth). |
+| `GET  /api/admin/metrics` | Listings-by-channel, AI cost rollup, recent errors. |
+| `POST /api/admin/listings/bulk` | Publish up to 50 products to N channels in one call. |
+| `GET  /api/cron/sync-listings` | Self-healing job; auth via QStash JWT, Vercel Cron secret, or Bearer. |
+| `GET  /api/images/telegram/<fileId>?sig=…` | Token-free signed proxy for Telegram-uploaded images. |
 
 ## Deployment
 
 Optimized for **Vercel** (Edge-compatible middleware, Web Crypto API). Also works with any Node.js host.
 
-For self-healing, set up a cron job hitting `/api/cron/sync-listings` every 15 minutes:
-- **Vercel Cron**: add to `vercel.json`
-- **Upstash QStash**: configure with signing keys for cryptographic verification
-- **External cron**: `curl -H "Authorization: Bearer $NEXTAUTH_SECRET" https://yourdomain.com/api/cron/sync-listings`
+A `vercel.json` is provided that wires up the 15-minute cron and bumps the
+Lambda timeout for cron, bulk-publish, AI generation, and Telegram routes.
+
+For self-healing the cron endpoint is hit every 15 minutes:
+- **Vercel Cron** — included via `vercel.json` and authenticated with `NEXTAUTH_SECRET` over `x-vercel-cron-secret`.
+- **Upstash QStash** — set `QSTASH_CURRENT_SIGNING_KEY` / `QSTASH_NEXT_SIGNING_KEY`. The route verifies the JWT locally (no extra dependency).
+- **External cron** — `curl -H "Authorization: Bearer $NEXTAUTH_SECRET" https://yourdomain.com/api/cron/sync-listings`
 
 ## Security
 
-- All inputs validated with Zod schemas
-- Timing-safe string comparison for webhook signatures
-- SSRF protection on AI image URLs (blocks RFC 1918, loopback, link-local, metadata IPs)
-- QStash cryptographic signature verification on cron endpoints
-- Generic error responses (no internal details leaked to clients)
-- Environment validation at startup (blocks misconfigured deploys)
+- All inputs validated with Zod schemas (admin APIs + Telegram updates).
+- Timing-safe string comparison for webhook signatures and admin Bearer tokens.
+- SSRF protection on AI image URLs **and** Etsy image upload (blocks RFC 1918, loopback, link-local, metadata IPs); image size capped at 20 MB.
+- Telegram bot token never lands in persisted URLs — photos are stored as HMAC-signed proxy URLs and the token-bearing fetch happens server-side.
+- Webhook idempotency table dedupes eBay/Etsy/Telegram retries.
+- QStash JWTs verified locally with HMAC-SHA-256 (no extra dependency), with body-hash claim and expiry check.
+- Admin API fails closed: missing both `ADMIN_API_TOKEN` and `ADMIN_EMAILS` → every request rejected.
+- In-process rate limiter on admin POST routes.
+- Per-route security headers + edge middleware (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, CSP for `/admin/**`).
+- Generic error responses (no internal details leaked).
+- Environment validation at startup (blocks misconfigured deploys).
 
 ## License
 
